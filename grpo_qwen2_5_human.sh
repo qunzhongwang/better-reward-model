@@ -1,0 +1,27 @@
+experient_name=grpo_human_body
+
+accelerate launch --config_file asset/config/deepspeed_zero2_8gpus.yaml \
+    basic_trainer_submit.py.py \
+    --dataset_name "" \
+    --output_dir log/model_checkpoints/$experient_name \
+    --remove_unused_columns False\
+    --learning_rate 5e-6 \
+    --per_device_train_batch_size 8 \
+    --gradient_accumulation_steps 8 \
+    --num_iterations 4 \
+    --num_generations 8 \
+    --model_name_or_path "/m2v_intern/wangqunzhong/research/huggingface/model/Qwen/Qwen2.5-VL-7B-Chat" \
+    --report_to "wandb" \
+    --logging_steps 1 \
+    --save_strategy steps \
+    --save_steps 100 \
+    --num_train_epochs 10 \
+    --bf16 True \
+    --use_peft True \
+    --lora_task_type "CAUSAL_LM" \
+    --lora_r 64 \
+    --lora_target_modules "q_proj" "v_proj"\
+    --lora_alpha 32 \
+    --lora_dropout 0.1 \
+    --remove_unused_columns False \
+    --log_completions True
