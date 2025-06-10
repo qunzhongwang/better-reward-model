@@ -150,6 +150,7 @@ def _human_body_preprocess_handler(sample, processor=None):
         model_inputs = {k:v[0] for k, v in model_inputs.items()}
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
+        model_inputs["message"] = message
         return model_inputs
     except Exception as exp:
         print(exp)

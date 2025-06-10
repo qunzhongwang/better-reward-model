@@ -988,40 +988,44 @@ class GRPOTrainer_qwen(Trainer):
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
 
-        # prompts = [x["prompt"] for x in inputs]
-        # prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
-        # prompt_inputs = self.processing_class(
-        #     text=prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
-        # )
+        prompts = [x["message"] for x in inputs]
+        prompts_text = [x["prompts_text"] for x in inputs]
 
+        prompt_inputs = self.processing_class.pad(
+            [
+                {
+                    k:v for k, v in _input.items() if not isinstance(v, str)
+                } for _input in inputs
+            ],
+            padding=True,
+            return_tensors="pt",
+            padding_side="left", 
+        )
+
+        
         breakpoint()
-
-        prompts_text = [x["caption"] for x in inputs]
-        prompt_inputs = self.processing_class.pad([{k:v for k, v in _input.items() if not isinstance(v, str)} for _input in inputs],padding=True, return_tensors="pt",padding_side="left", )
-        #.squeeze(1)
-
+        
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         
         (
             prompt_ids,
             prompt_mask,
-            pixel_values_videos, 
-            video_grid_thw, 
-            second_per_grid_ts,
         ) = \
         (
             prompt_inputs["input_ids"],
             prompt_inputs["attention_mask"],
-            prompt_inputs["pixel_values_videos"],
-            prompt_inputs["video_grid_thw"],
-            prompt_inputs["second_per_grid_ts"],
-        )#, prompt_inputs[""]
+        )
+        visual_inputs = {
+            "pixel_values_videos" : prompt_inputs["pixel_values_videos"],
+            "video_grid_thw" : prompt_inputs["video_grid_thw"],
+            "second_per_grid_ts" :  prompt_inputs["second_per_grid_ts"],
+        }
         
         if self.max_prompt_length is not None:
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
         
-        breakpoint()
+
 
         import pdb
         pdb.set_trace()
@@ -1120,11 +1124,8 @@ class GRPOTrainer_qwen(Trainer):
                     prompt_completion_ids = unwrapped_model.generate(
                         prompt_ids, 
                         attention_mask=prompt_mask, 
-                        pixel_values_videos=pixel_values_videos, 
-                        video_grid_thw=video_grid_thw, 
-                        second_per_grid_ts=second_per_grid_ts,
+                        **visual_inputs,
                         generation_config=self.generation_config, 
-
                     )
 
             # Compute prompt length and extract completion ids
