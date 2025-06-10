@@ -498,7 +498,6 @@ class GRPOTrainer_qwen(Trainer):
             return features
 
         # Training arguments
-        # self.max_prompt_length = args.max_prompt_length
         self.max_prompt_length = None
         self.max_completion_length = args.max_completion_length  # = |o_i| in the GRPO paper
         self.num_generations = args.num_generations  # = G in the GRPO paper
@@ -1369,7 +1368,8 @@ class GRPOTrainer_qwen(Trainer):
             -1
         )
 
-        visual_inputs["second_per_grid_ts"] = torch.tensor(visual_inputs["second_per_grid_ts"])
+        if not isinstance(visual_inputs["second_per_grid_ts"], torch.Tensor):
+            visual_inputs["second_per_grid_ts"] = torch.tensor(visual_inputs["second_per_grid_ts"])
 
         visual_inputs["second_per_grid_ts"] = \
         visual_inputs["second_per_grid_ts"].reshape(

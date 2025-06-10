@@ -236,8 +236,8 @@ def main(script_args, training_args, model_args):
     )
 
     processor = AutoProcessor.from_pretrained(model_args.model_name_or_path)
-    train_dataset = preprocess_handler(train_dataset, processor)
-    test_dataset = preprocess_handler(test_dataset, processor)
+    train_dataset = preprocess_handler(train_dataset, processor, system_prompt)
+    test_dataset = preprocess_handler(test_dataset, processor, system_prompt)
     del (
         processor
     )

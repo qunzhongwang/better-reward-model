@@ -1,4 +1,5 @@
 experient_name=grpo_human_body
+export CUDA_VISIBLE_DEVICES=1,2,3,4,5,6
 
 accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     basic_trainer_submit.py \
@@ -6,10 +7,10 @@ accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     --output_dir log/model_checkpoints/$experient_name \
     --remove_unused_columns False\
     --learning_rate 5e-6 \
-    --per_device_train_batch_size 4 \
-    --gradient_accumulation_steps 8 \
+    --per_device_train_batch_size 6 \
+    --gradient_accumulation_steps 12 \
     --num_iterations 8 \
-    --num_generations 16 \
+    --num_generations 72 \
     --model_name_or_path "Qwen/Qwen2.5-VL-7B-Instruct" \
     --report_to "wandb" \
     --logging_steps 1 \
@@ -25,7 +26,7 @@ accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     --remove_unused_columns False \
     --log_completions True \
     --data_pipeline "qwen2.5-humanbody-grpo" \
-    --data_select_ratio 0.125 \
+    --data_select_ratio 0.05 \
     --cache_dir "/m2v_intern/wangqunzhong/research/asset/huggingface/model/Qwen/Qwen2.5-VL-7B-Chat" \
     --torch_dtype "bfloat16" \
     --debug_entry_point False \
@@ -34,4 +35,5 @@ accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     --bf16 True \
     --max_completion_length 1024 \
     --fps 8. \
+    --max_prompt_length None
 

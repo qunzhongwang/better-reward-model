@@ -57,10 +57,10 @@ question_template = \
     For each evaluation dimension, provide a score between 1-10 for both videos (e.g., Video 1: 8/10, Video 2: 6/10) and provide a concise rationale for the score.\
     Calculate the total score for each video by summing all dimension scores. Use a chain-of-thought process to detail your reasoning steps, and enclose all your detailed reasoning within <think> and </think> tags.\
     Then, in the <answer> tag, output exactly one of the following strings: 'Video 1 is better' or 'Video 2 is better' based on the total scores. No additional text is allowed in the <answer> section.\
-    \n\nExample output format:\n<think>\n1. Semantic consistency: Video 1 (9/10) - ...; Video 2 (7/10) - ...\n2. Temporal coherence: Video 1 (8/10) - ...; Video 2 (6/10) - ...\n3. Authenticity: Video 1 (7/10) - ...; Video 2 (5/10) \
-    - ...\n4. Coordination of human movement: Video 1 (6/10) - ...; Video 2 (8/10) - ... \n[Additional dimensions if any]: Video 1 (6/10) - ...;  Video 2 (8/10) - ...\nTotal score:\nVideo 1: 9+8+7+6+6=36\nVideo 2: 7+6+5+8+8=34\n</think>\n<answer>Video 1 is better</answer>\n**\
+    \n\nExample output format:\n<think>1. Semantic consistency: Video 1 (9/10) - ...; Video 2 (7/10) - ...\n2. Temporal coherence: Video 1 (8/10) - ...; Video 2 (6/10) - ...\n3. Authenticity: Video 1 (7/10) - ...; Video 2 (5/10) \
+    - ...\n4. Coordination of human movement: Video 1 (6/10) - ...; Video 2 (8/10) - ... \n[Additional dimensions if any]: Video 1 (6/10) - ...;  Video 2 (8/10) - ...\nTotal score:\nVideo 1: 9+8+7+6+6=36\nVideo 2: 7+6+5+8+8=34</think><answer>Video 1 is better</answer>\
     Note: In the example above, scores and the final answer are placeholders meant only to demonstrate the format. Your actual evaluation should be based on the quality of two given videos.*\
-    \n\nYour task is provided as follows:\nText Caption: [{prompt}]\
+    \n\nYour task is provided as follows:\nText Caption: [{prompt}]\n\
 """
 
 def selection_identify(selction: list = None, default_selection: list = None):
@@ -68,12 +68,20 @@ def selection_identify(selction: list = None, default_selection: list = None):
         default_selection = ["chosen_video_path", "rejected_video_path"]
     return int(selction == default_selection)
 
-def generate_prompts(processor, sample, video_paths, curr_fps):
+def generate_prompts(processor, sample, video_paths, curr_fps, system_prompt = None):
         left_video, right_video = video_paths
         message = [
             {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
                 "role": "user",
                 "content": [
+                    {
+                        "type": "text",
+                        "text": question_template.format(prompt=sample["caption"])
+                    },
                     {
                         "type": "text",
                         "text": "This is the start of Video 1:\n"
@@ -98,9 +106,7 @@ def generate_prompts(processor, sample, video_paths, curr_fps):
                     },
                     {
                         "type": "text", 
-                        "text": \
-                            "\nThis is the end of Video 1.\n\n" + \
-                            question_template.format(prompt=sample["caption"])
+                        "text": "\nThis is the end of Video 2.\n\n"
                     },
                 ],
             }
@@ -129,7 +135,7 @@ def load_human_body(data_path:str, args = None):
     return train_dataset, val_dataset
 
 
-def _human_body_preprocess_handler(sample, processor=None):
+def _human_body_preprocess_handler(sample, processor=None, system_prompt = None):
     try: 
         model_inputs = {}
 
@@ -138,7 +144,7 @@ def _human_body_preprocess_handler(sample, processor=None):
         random.shuffle(video_paths)
         selection = selection_identify(video_paths)
 
-        prompt, message = generate_prompts(processor, sample, video_paths, curr_fps)
+        prompt, message = generate_prompts(processor, sample, video_paths, curr_fps, system_prompt)
             
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
@@ -148,11 +154,12 @@ def _human_body_preprocess_handler(sample, processor=None):
         print(exp)
         return None
 
-def human_body_preprocess_handler(dataset: datasets.Dataset = None, processor = None):
+def human_body_preprocess_handler(dataset: datasets.Dataset = None, processor = None, system_prompt = None):
     dataset = dataset.map(
         function = _human_body_preprocess_handler,
         fn_kwargs = {
-            "processor" : processor
+            "processor" : processor,
+            "system_prompt": system_prompt,
         },
         batched=False,
         load_from_cache_file = False,
