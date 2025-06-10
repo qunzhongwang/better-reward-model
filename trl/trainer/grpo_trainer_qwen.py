@@ -993,29 +993,30 @@ class GRPOTrainer_qwen(Trainer):
         prompts = [x["message"] for x in inputs]
         prompts_text = [x["prompts_text"] for x in inputs]
 
-        prompt_inputs = self.processing_class.pad(
-            [
-                {
-                    k:v for k, v in _input.items() if (not isinstance(v, str) and k not in ["message"])
-                } for _input in inputs
-            ],
-            padding=True,
-            return_tensors="pt",
-            padding_side="left", 
-        )
-
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             prompts, 
             return_video_kwargs=True
         )
+
         prompt_inputs = self.processing_class(
             text=prompts_text,
             images=image_inputs,
             videos=video_inputs, 
             padding=True,
             return_tensors="pt",
+            padding_side="left",
             **video_kwargs
             )
+        # prompt_inputs = self.processing_class.pad(
+        #     [
+        #         {
+        #             k:v for k, v in _input.items() if (not isinstance(v, str) and k not in ["message"])
+        #         } for _input in inputs
+        #     ],
+        #     padding=True,
+        #     return_tensors="pt",
+        # )
+
         breakpoint()
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         
