@@ -994,7 +994,7 @@ class GRPOTrainer_qwen(Trainer):
         prompt_inputs = self.processing_class.pad(
             [
                 {
-                    k:v for k, v in _input.items() if not isinstance(v, str)
+                    k:v for k, v in _input.items() if (not isinstance(v, str) and k not in ["message"])
                 } for _input in inputs
             ],
             padding=True,
