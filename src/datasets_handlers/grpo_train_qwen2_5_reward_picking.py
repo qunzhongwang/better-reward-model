@@ -131,27 +131,15 @@ def load_human_body(data_path:str, args = None):
 
 def _human_body_preprocess_handler(sample, processor=None):
     try: 
-        curr_fps = default_fps
+        model_inputs = {}
 
+        curr_fps = default_fps
         video_paths = ["chosen_video_path", "rejected_video_path"]
         random.shuffle(video_paths)
         selection = selection_identify(video_paths)
 
         prompt, message = generate_prompts(processor, sample, video_paths, curr_fps)
-        image_inputs, video_inputs, video_kwargs = process_vision_info([message], return_video_kwargs=True)
-        model_inputs = processor(
-            text=[prompt],
-            images=image_inputs,
-            videos=video_inputs, 
-            padding=True,
-            return_tensors="pt",
-            **video_kwargs
-            )
-        
-        model_inputs = {
-            k:v[0] if v in ["input_ids", "attention_mask"] else v for k, v in model_inputs.items()
-        }
-    
+            
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
         model_inputs["message"] = message

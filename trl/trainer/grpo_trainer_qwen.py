@@ -76,6 +76,8 @@ if is_vllm_available():
 if is_wandb_available():
     import wandb
 
+from qwen_vl_utils import process_vision_info
+
 # What we call a reward function is a callable that takes a list of prompts and completions and returns a list of
 # rewards. When it's a string, it's a model ID, so it's loaded as a pretrained model.
 RewardFunc = Union[str, PreTrainedModel, Callable[[list, list], list[float]]]
@@ -1002,9 +1004,19 @@ class GRPOTrainer_qwen(Trainer):
             padding_side="left", 
         )
 
-        
+        image_inputs, video_inputs, video_kwargs = process_vision_info(
+            prompts, 
+            return_video_kwargs=True
+        )
+        prompt_inputs = self.processing_class(
+            text=prompts_text,
+            images=image_inputs,
+            videos=video_inputs, 
+            padding=True,
+            return_tensors="pt",
+            **video_kwargs
+            )
         breakpoint()
-        
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         
         (
