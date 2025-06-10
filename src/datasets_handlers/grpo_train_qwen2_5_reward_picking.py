@@ -147,6 +147,7 @@ def _human_body_preprocess_handler(sample, processor=None):
             return_tensors="pt",
             **video_kwargs
             )
+        breakpoint()
         model_inputs = {k:v[0] for k, v in model_inputs.items()}
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
