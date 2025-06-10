@@ -66,11 +66,10 @@ question_template = \
 def selection_identify(selction: list = None, default_selection: list = None):
     if default_selection is None:
         default_selection = ["chosen_video_path", "rejected_video_path"]
-    return selction == default_selection
+    return int(selction == default_selection)
 
 def generate_prompts(processor, sample, video_paths, curr_fps):
         left_video, right_video = video_paths
-
         message = [
             {
                 "role": "user",
@@ -88,7 +87,7 @@ def generate_prompts(processor, sample, video_paths, curr_fps):
                     },
                     {
                         "type": "text",
-                          "text": "\nThis is the end of Video 1.\n\nThis is the start of Video 2:\n"
+                        "text": "\nThis is the end of Video 1.\n\nThis is the start of Video 2:\n"
                     },
                     {
                         "type": "video",
@@ -107,47 +106,53 @@ def generate_prompts(processor, sample, video_paths, curr_fps):
             }
         ]
         prompt = processor.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
-       
-        return prompt
+        return prompt, message
 
 
-def load_human_body(data_path:str =None, args = None):
+def load_human_body(data_path:str, args = None):
 
     if hasattr(args, "fps"):
         global default_fps
         default_fps = args.fps
     
-    if data_path is None: 
-        dataset = load_dataset(
-            path = data_path,
-            )["train"]
-        split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
-        train_dataset = split_dataset["train"]
-        val_dataset = split_dataset["test"]
-        train_dataset = train_dataset.shuffle(seed=42).select(range(int(len(train_dataset) * config.data_conf.sample_ratio)))
-        val_dataset = val_dataset.shuffle(seed=42).select(range(int(len(val_dataset) * config.data_conf.sample_ratio)))
-        train_dataset = train_dataset.select_columns(["chosen_video_path", "rejected_video_path", "caption"])
-        val_dataset = val_dataset.select_columns(["chosen_video_path", "rejected_video_path", "caption"])
+    dataset = load_dataset(
+        path = data_path,
+        )["train"]
+    split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
+    train_dataset = split_dataset["train"]
+    val_dataset = split_dataset["test"]
+    train_dataset = train_dataset.shuffle(seed=42).select(range(int(len(train_dataset) * args.data_select_ratio)))
+    val_dataset = val_dataset.shuffle(seed=42).select(range(int(len(val_dataset) * args.data_select_ratio)))
+    train_dataset = train_dataset.select_columns(["chosen_video_path", "rejected_video_path", "caption"])
+    val_dataset = val_dataset.select_columns(["chosen_video_path", "rejected_video_path", "caption"])
+
     return train_dataset, val_dataset
 
 
 def _human_body_preprocess_handler(sample, processor=None):
     try: 
-        number_batch_size = len(sample)
         curr_fps = default_fps
 
-        video_pathss = ["chosen_video_path", "rejected_video_path"] * len(sample)
-        video_pathss = map(random.shuffle, video_pathss)
-        selections = map(selection_identify, video_pathss)
+        video_paths = ["chosen_video_path", "rejected_video_path"]
+        random.shuffle(video_paths)
+        selection = selection_identify(video_paths)
 
-        prompts, messages = map(generate_prompts, [processor] * number_batch_size, sample, video_pathss,[curr_fps] * number_batch_size)
-
-        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
-
-        model_inputs = processor(text=prompts,images=image_inputs,videos=video_inputs, padding=True,return_tensors="pt",**video_kwargs)
-        model_inputs["selections"] = selections
+        prompt, message = generate_prompts(processor, sample, video_paths, curr_fps)
+        image_inputs, video_inputs, video_kwargs = process_vision_info([message], return_video_kwargs=True)
+        model_inputs = processor(
+            text=[prompt],
+            images=image_input,
+            videos=video_inputs, 
+            padding=True,
+            return_tensors="pt",
+            **video_kwargs
+            )[0]
+        model_inputs["selections"] = selection
+        model_inputs["prompts_text"] = prompt
+        # breakpoint()
         return model_inputs
-    except Exception:
+    except Exception as exp:
+        print(exp)
         return None
 
 def human_body_preprocess_handler(dataset: datasets.Dataset = None, processor = None):

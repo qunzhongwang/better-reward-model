@@ -1,0 +1,5 @@
+[default]
+entity = KwaiAiTraining
+project = huggingface
+base_url = https://api.wandb.ai
+

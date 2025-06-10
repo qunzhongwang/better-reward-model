@@ -19,19 +19,21 @@ import torch.distributed as dist
 
 # 导入HF toolkit
 from datasets import (
-    load_dataset,
-    human_body_preprocess_handler
+    load_dataset
 )
 
 from transformers import (
+    AutoProcessor,
     AutoModelForCausalLM, 
     AutoModelForSequenceClassification, 
-    AutoTokenizer
+    AutoTokenizer,
+    Qwen2VLForConditionalGeneration,
 )
 
 from trl import (
     GRPOConfig,
-    GRPOTrainer, 
+    GRPOTrainer,
+    GRPOTrainer_qwen, 
     ModelConfig, 
     ScriptArguments, 
     TrlParser, 
@@ -39,10 +41,11 @@ from trl import (
 )
 
 # 导入自定义方法
-from src.datasets.grpo_train_qwen2_5_reward_picking import (
+from src.datasets_handlers.grpo_train_qwen2_5_reward_picking import (
     load_human_body, 
     human_body_preprocess_handler
 )
+
 
 def dist_debug():
     if dist.get_rank() == 0 :
@@ -50,22 +53,11 @@ def dist_debug():
     dist.barrier()
 
 
-def get_asset():
-    global SYSTEM_PROMPT
-
-    SYSTEM_PROMPT = (
-        "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
-        "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
-        "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
-        "<think> reasoning process here </think><answer> answer here </answer>"
-    )
-
-
 def make_conversation(example):
     return {
         "prompt": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["problem"]},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": example["caption"]},
         ],
     }
 
@@ -85,17 +77,39 @@ def format_reward(completions, **kwargs):
     rewards_list = [1.0 if match else 0.0 for match in matches]
     return [1.0 if match else 0.0 for match in matches]
 
+system_prompt = None
+reward_funcs_registry = None
+
+def get_asset():
+
+    global system_prompt, reward_funcs_registry
+
+    system_prompt = (
+        "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
+        "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
+        "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
+        "<think> reasoning process here </think><answer> answer here </answer>"
+    )
+
+    reward_funcs_registry = {
+        "think_format_reward": format_reward,
+    }
+
 def update_image_or_video_reward(args):
+
+    get_asset()
+
+    global system_prompt, reward_funcs_registry
+
     if not hasattr(args, "data_source"):
         args.data_source = "image"
     if args.data_source == "image":
-        global reward_funcs_registry
         reward_funcs_registry["accuracy_reward"] = pick_correct_image_reward
     else:
-        global reward_funcs_registry
         reward_funcs_registry["accuracy_reward"] = pick_correct_video_reward
 
 def pick_correct_video_reward(completions, **kwargs):
+    breakpoint()
     image_left_is_better =  kwargs["selection"]
     completion_contents = [completion[0]["content"] for completion in completions]
     rewards = []
@@ -137,11 +151,6 @@ def pick_correct_image_reward(completions, **kwargs):
             
     return rewards
 
-reward_funcs_registry = {
-    "think_format_reward": format_reward,
-}
-
-
 
 
 @dataclass
@@ -179,9 +188,15 @@ class GRPOScriptArguments(ScriptArguments):
 
     data_source: str = "image"
 
+    data_pipeline:str = "qwen2.5-humanbody-grpo"
+
+    data_select_ratio:float = 0.1
+
+    cache_dir: str = None
+
 
 def main(script_args, training_args, model_args):
-
+    
     update_image_or_video_reward(script_args)
 
     # Get the reward models and functions
@@ -214,21 +229,27 @@ def main(script_args, training_args, model_args):
     dataloader_handler, preprocess_handler = select_data_pipeline(script_args.data_pipeline)
     
     train_dataset, test_dataset = dataloader_handler(
-        script_args.dataset_name
+        script_args.dataset_name,
+        script_args
     )
 
-    train_dataset = preprocess_handler(train_dataset)
-    test_dataset = preprocess_handler(test_dataset)
+    processor = AutoProcessor.from_pretrained(model_args.model_name_or_path)
+    train_dataset = preprocess_handler(train_dataset, processor)
+    test_dataset = preprocess_handler(test_dataset, processor)
+    del (
+        processor
+    )
 
     # Initialize the GRPO trainer
-    trainer = GRPOTrainer(
+    global trainer 
+    
+    trainer = GRPOTrainer_qwen(
         model=model_args.model_name_or_path,
         reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=test_dataset if training_args.eval_strategy != "no" else None,
         peft_config=get_peft_config(model_args),
-        
     )
 
     # Train and push the model to the Hub
@@ -261,4 +282,11 @@ def make_parser(subparsers: argparse._SubParsersAction = None):
 if __name__ == "__main__":
     parser = make_parser()
     script_args, training_args, model_args = parser.parse_args_and_config()
+    model_init_kwargs = {}
+    for name in ["torch_dtype", "cache_dir"]:
+        if hasattr(script_args, name):
+            model_init_kwargs[name] = getattr(script_args, name)
+        elif hasattr(training_args, name):
+            model_init_kwargs[name] = getattr(training_args, name)
+    training_args.model_init_kwargs = model_init_kwargs
     main(script_args, training_args, model_args)
