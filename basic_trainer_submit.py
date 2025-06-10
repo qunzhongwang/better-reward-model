@@ -194,6 +194,8 @@ class GRPOScriptArguments(ScriptArguments):
 
     cache_dir: str = None
 
+    fps: float = 1.
+
 
 def main(script_args, training_args, model_args):
     
