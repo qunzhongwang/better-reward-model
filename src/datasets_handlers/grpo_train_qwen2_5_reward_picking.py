@@ -141,7 +141,7 @@ def _human_body_preprocess_handler(sample, processor=None):
         image_inputs, video_inputs, video_kwargs = process_vision_info([message], return_video_kwargs=True)
         model_inputs = processor(
             text=[prompt],
-            images=image_input,
+            images=image_inputs,
             videos=video_inputs, 
             padding=True,
             return_tensors="pt",
@@ -149,7 +149,7 @@ def _human_body_preprocess_handler(sample, processor=None):
             )[0]
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
-        # breakpoint()
+
         return model_inputs
     except Exception as exp:
         print(exp)
@@ -161,6 +161,7 @@ def human_body_preprocess_handler(dataset: datasets.Dataset = None, processor = 
         fn_kwargs = {
             "processor" : processor
         },
-        batched=False
+        batched=False,
+        load_from_cache_file = False,
     )
     return dataset
