@@ -1011,14 +1011,12 @@ class GRPOTrainer_qwen(Trainer):
                         "video_grid_thw" : buffer.pop("video_grid_thw"),
                         "second_per_grid_ts" : buffer.pop("second_per_grid_ts"),
                     }
-
-                # breakpoint()
             inputs = self._buffered_inputs[self._step % self.args.steps_per_generation]
             self._step += 1
         else:
             # In evaluation, there is neither batch grouping for generation, nor multiple iterations, hence
             # local generation batch == local eval batch
-            inputs = self._generate_and_score_completions(generation_batch)
+            inputs = self._generate_and_score_completions(generation_batch) #TODO EVAL PIPELINE
         return inputs
 
     def _generate_and_score_completions(
@@ -1029,7 +1027,6 @@ class GRPOTrainer_qwen(Trainer):
 
         prompts = [x["message"] for x in inputs]
         prompts_text = [x["prompts_text"] for x in inputs]
-
 
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             prompts, 
@@ -1065,11 +1062,6 @@ class GRPOTrainer_qwen(Trainer):
         if self.max_prompt_length is not None:
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
-        
-
-
-        # import pdb
-        # pdb.set_trace()
 
         # Generate completions using either vLLM or regular generation
         if self.use_vllm:
@@ -1429,7 +1421,6 @@ class GRPOTrainer_qwen(Trainer):
 
     @profiling_decorator
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        # breakpoint()
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
         if self.use_liger_loss:
