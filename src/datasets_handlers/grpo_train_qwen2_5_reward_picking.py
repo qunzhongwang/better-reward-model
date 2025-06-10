@@ -146,10 +146,10 @@ def _human_body_preprocess_handler(sample, processor=None):
             padding=True,
             return_tensors="pt",
             **video_kwargs
-            )[0]
+            )
+        model_inputs = {k:v[0] for k, v in model_inputs.items()}
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
-
         return model_inputs
     except Exception as exp:
         print(exp)
