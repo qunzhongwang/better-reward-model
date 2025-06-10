@@ -74,7 +74,7 @@ def format_reward(completions, **kwargs):
     pattern = r"^<think>.*?</think>\s*<answer>.*?</answer>$"
     # breakpoint()
     completion_contents = [completion for completion in completions]
-    matches = [re.match(pattern, content) for content in completion_contents]
+    matches = [re.match(pattern, content, re.DOTALL) for content in completion_contents]
     rewards_list = [1.0 if match else 0.0 for match in matches]
     return [1.0 if match else 0.0 for match in matches]
 

@@ -71,10 +71,10 @@ def selection_identify(selction: list = None, default_selection: list = None):
 def generate_prompts(processor, sample, video_paths, curr_fps, system_prompt = None):
         left_video, right_video = video_paths
         message = [
-            {
-                "role": "system",
-                "content": system_prompt
-            },
+            # {
+            #     "role": "system",
+            #     "content": system_prompt
+            # },
             {
                 "role": "user",
                 "content": [
@@ -141,17 +141,11 @@ def _human_body_preprocess_handler(sample, processor=None, system_prompt = None)
 
         curr_fps = default_fps
         video_paths = ["chosen_video_path", "rejected_video_path"]
-
-        for video_path in video_paths:
-            if not os.path.exists(sample[video_path]): 
-                print(f"NO FILE {sample[video_path]}")
-                return None
         
         random.shuffle(video_paths)
         selection = selection_identify(video_paths)
 
         prompt, message = generate_prompts(processor, sample, video_paths, curr_fps, system_prompt)
-            
         model_inputs["selections"] = selection
         model_inputs["prompts_text"] = prompt
         model_inputs["message"] = message
@@ -160,14 +154,19 @@ def _human_body_preprocess_handler(sample, processor=None, system_prompt = None)
         print(exp)
         return None
 
+def _filter_out_not_exist_filepath(sample):
+    video_paths = ["chosen_video_path", "rejected_video_path"]
+    for video_path in video_paths:
+            if not os.path.exists(sample[video_path]): 
+                print(f"NO FILE {sample[video_path]}")
+                return None
+    return sample
+
 def human_body_preprocess_handler(dataset: datasets.Dataset = None, processor = None, system_prompt = None):
     dataset = dataset.map(
-        function = _human_body_preprocess_handler,
-        fn_kwargs = {
-            "processor" : processor,
-            "system_prompt": system_prompt,
-        },
+        function = _filter_out_not_exist_filepath,
         batched=False,
         load_from_cache_file = False,
     )
+    dataset = dataset.map(function = _human_body_preprocess_handler,fn_kwargs = {"processor" : processor,"system_prompt": system_prompt,}, batched=False,load_from_cache_file = False,)
     return dataset
