@@ -993,6 +993,8 @@ class GRPOTrainer_qwen(Trainer):
         prompts = [x["message"] for x in inputs]
         prompts_text = [x["prompts_text"] for x in inputs]
 
+        breakpoint()
+
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             prompts, 
             return_video_kwargs=True
@@ -1018,6 +1020,7 @@ class GRPOTrainer_qwen(Trainer):
         # )
 
         breakpoint()
+
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         
         (
