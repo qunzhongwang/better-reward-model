@@ -141,10 +141,10 @@ def _human_body_preprocess_handler(sample, processor=None, system_prompt = None)
 
         curr_fps = default_fps
         video_paths = ["chosen_video_path", "rejected_video_path"]
-        
+
         for video_path in video_paths:
-            if not os.path.exists(video_path): 
-                print(f"NO FILE {video_path}")
+            if not os.path.exists(sample[video_path]): 
+                print(f"NO FILE {sample[video_path]}")
                 return None
         
         random.shuffle(video_paths)

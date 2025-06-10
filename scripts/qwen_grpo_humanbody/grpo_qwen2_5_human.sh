@@ -35,5 +35,5 @@ accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     --bf16 True \
     --max_completion_length 1024 \
     --fps 8. \
-    --max_prompt_length None
+    --max_prompt_length none
 
