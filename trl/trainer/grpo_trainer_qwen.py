@@ -32,7 +32,9 @@ from transformers import (
     AutoModelForCausalLM,
     AutoModelForSequenceClassification,
     Qwen2_5_VLForConditionalGeneration,
+    Qwen2VLProcessor,
     AutoTokenizer,
+    AutoProcessor,
     GenerationConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -61,6 +63,8 @@ from .utils import (
     print_prompt_completions_sample,
     selective_log_softmax,
 )
+
+import numpy as np
 
 
 if is_peft_available():
@@ -438,9 +442,9 @@ class GRPOTrainer_qwen(Trainer):
 
         # Processing class
         if processing_class is None:
-            processing_class = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
-        if processing_class.pad_token is None:
-            processing_class.pad_token = processing_class.eos_token
+            processing_class = AutoProcessor.from_pretrained(model.config._name_or_path, padding_side="left")
+        if processing_class.tokenizer.pad_token is None:
+            processing_class.tokenizer.pad_token = processing_class.tokenizer.eos_token
 
         # Reward functions
         if not isinstance(reward_funcs, list):
@@ -677,9 +681,9 @@ class GRPOTrainer_qwen(Trainer):
             self.generation_config = GenerationConfig(
                 max_new_tokens=self.max_completion_length,
                 do_sample=True,
-                pad_token_id=processing_class.pad_token_id,
-                bos_token_id=processing_class.bos_token_id,
-                eos_token_id=processing_class.eos_token_id,
+                pad_token_id=processing_class.tokenizer.pad_token_id,
+                bos_token_id=processing_class.tokenizer.bos_token_id,
+                eos_token_id=processing_class.tokenizer.eos_token_id,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -840,24 +844,44 @@ class GRPOTrainer_qwen(Trainer):
 
     # Get the per-token log probabilities for the completions for the model and the reference model
     @profiling_decorator
-    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep, batch_size=None) -> torch.Tensor:
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep, batch_size=None, visual_inputs = None,) -> torch.Tensor:
         batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
         all_logps = []
+        pixel_values_videos_offset = 0
+        video_per_sentence = 2
         for i in range(0, input_ids.size(0), batch_size):
+            visual_inputs_batch = {}
             input_ids_batch = input_ids[i : i + batch_size]
             attention_mask_batch = attention_mask[i : i + batch_size]
+            # local_offset = 0
+            # for video_index in range(video_per_sentence * batch_size):
+            local_offset = int(
+                torch.sum(
+                    torch.prod(
+                        visual_inputs["video_grid_thw"][
+                            i * video_per_sentence : ( i + batch_size ) * video_per_sentence
+                            ],
+                            dim=1
+                )))
+            
+            visual_inputs_batch["pixel_values_videos"] = visual_inputs["pixel_values_videos"][pixel_values_videos_offset : pixel_values_videos_offset + local_offset]
+            visual_inputs_batch["video_grid_thw"] = visual_inputs["video_grid_thw"][i * video_per_sentence : ( i + batch_size ) * video_per_sentence]
+            visual_inputs_batch["second_per_grid_ts"] = visual_inputs["second_per_grid_ts"][i * video_per_sentence : ( i + batch_size ) * video_per_sentence]
+            pixel_values_videos_offset += local_offset
 
             # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
             logits = model(
-                input_ids=input_ids_batch, attention_mask=attention_mask_batch, logits_to_keep=logits_to_keep + 1
-            ).logits
-            logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+                input_ids=input_ids_batch, 
+                attention_mask=attention_mask_batch,
+                **visual_inputs_batch,
+            ).logits[ : , -logits_to_keep - 1 : -1 , : ] # logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
             input_ids_batch = input_ids_batch[:, -logits_to_keep:]
             # Divide logits by sampling temperature.
             # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
             logits = logits / self.temperature
             logps = selective_log_softmax(logits, input_ids_batch)  # compute logprobs for the input tokens
             all_logps.append(logps)
+
         return torch.cat(all_logps, dim=0)
 
     def _sync_fsdp_params_to_vllm(self, module: nn.Module, prefix: str = "", visited=None):
@@ -972,10 +996,24 @@ class GRPOTrainer_qwen(Trainer):
         if mode == "train":
             generate_every = self.args.steps_per_generation * self.num_iterations
             if self._step % generate_every == 0 or self._buffered_inputs is None:
-                # self._buffered_inputs=None can occur when resuming from a checkpoint
+                # self._buffered_inputs = None can occur when resuming from a checkpoint
                 generation_batch = self._generate_and_score_completions(generation_batch)
                 generation_batch = shuffle_tensor_dict(generation_batch)
                 self._buffered_inputs = split_tensor_dict(generation_batch, self.args.steps_per_generation)
+                for buffer in self._buffered_inputs:
+                    for visual_field in ["pixel_values_videos", "video_grid_thw"]:
+                        visual_tensor_size = buffer[visual_field].shape
+                        buffer[visual_field] = buffer[visual_field].reshape(-1, visual_tensor_size[2])
+                    for  visual_field in ["second_per_grid_ts"]:
+                        buffer[visual_field] =  buffer[visual_field].reshape(-1)
+
+                    buffer["visual_inputs"] = {
+                        "pixel_values_videos" : buffer.pop("pixel_values_videos"),
+                        "video_grid_thw" : buffer.pop("video_grid_thw"),
+                        "second_per_grid_ts" : buffer.pop("second_per_grid_ts"),
+                    }
+
+                # breakpoint()
             inputs = self._buffered_inputs[self._step % self.args.steps_per_generation]
             self._step += 1
         else:
@@ -993,7 +1031,6 @@ class GRPOTrainer_qwen(Trainer):
         prompts = [x["message"] for x in inputs]
         prompts_text = [x["prompts_text"] for x in inputs]
 
-        breakpoint()
 
         image_inputs, video_inputs, video_kwargs = process_vision_info(
             prompts, 
@@ -1009,17 +1046,6 @@ class GRPOTrainer_qwen(Trainer):
             padding_side="left",
             **video_kwargs
             )
-        # prompt_inputs = self.processing_class.pad(
-        #     [
-        #         {
-        #             k:v for k, v in _input.items() if (not isinstance(v, str) and k not in ["message"])
-        #         } for _input in inputs
-        #     ],
-        #     padding=True,
-        #     return_tensors="pt",
-        # )
-
-        breakpoint()
 
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
         
@@ -1043,8 +1069,8 @@ class GRPOTrainer_qwen(Trainer):
         
 
 
-        import pdb
-        pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
 
         # Generate completions using either vLLM or regular generation
         if self.use_vllm:
@@ -1125,7 +1151,7 @@ class GRPOTrainer_qwen(Trainer):
 
             # Pad the completions, and concatenate them with the prompts
             completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids]
-            completion_ids = pad(completion_ids, padding_value=self.processing_class.pad_token_id)
+            completion_ids = pad(completion_ids, padding_value=self.processing_class.tokenizer.pad_token_id)
             prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         else:
             # Regular generation path
@@ -1150,7 +1176,7 @@ class GRPOTrainer_qwen(Trainer):
             completion_ids = prompt_completion_ids[:, prompt_length:]
 
         # Mask everything after the first EOS token
-        is_eos = completion_ids == self.processing_class.eos_token_id
+        is_eos = completion_ids == self.processing_class.tokenizer.eos_token_id
         eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
         sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
@@ -1175,14 +1201,14 @@ class GRPOTrainer_qwen(Trainer):
 
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
-
+        
         with torch.no_grad():
             # When using num_iterations == 1 and steps_per_generation <= gradient_accumulation_steps
             # old_per_token_logps == per_token_logps, so we can skip it's computation here, and use
             # per_token_logps.detach() instead.
             if self.num_iterations > 1 or self.args.steps_per_generation > self.args.gradient_accumulation_steps:
                 old_per_token_logps = self._get_per_token_logps(
-                    self.model, prompt_completion_ids, attention_mask, logits_to_keep, batch_size
+                    self.model, prompt_completion_ids, attention_mask, logits_to_keep, batch_size, visual_inputs
                 )
             else:
                 old_per_token_logps = None
@@ -1245,7 +1271,7 @@ class GRPOTrainer_qwen(Trainer):
 
         # Apply weights to each reward function's output and sum
         rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
-
+        
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
@@ -1305,18 +1331,58 @@ class GRPOTrainer_qwen(Trainer):
             self._textual_logs["rewards"][name].extend(rewards_per_func[:, i].tolist())
         self._textual_logs["advantages"].extend(all_process_advantages.tolist())
 
+        visual_inputs = self.evenly_split_visual_inputs(visual_inputs, len(prompt_ids))
+        (
+            pixel_values_videos, 
+            video_grid_thw, 
+            second_per_grid_ts
+        ) = (
+                visual_inputs["pixel_values_videos"], 
+                visual_inputs["video_grid_thw"], 
+                visual_inputs["second_per_grid_ts"]
+            )
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
+            "pixel_values_videos": pixel_values_videos,
+            "video_grid_thw" : video_grid_thw,
+            "second_per_grid_ts" : second_per_grid_ts,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
             "advantages": advantages,
             "old_per_token_logps": old_per_token_logps,
         }
 
+    def evenly_split_visual_inputs(self, visual_inputs, batch_size, video_per_sentence = 2):
+
+        visual_inputs["pixel_values_videos"] = \
+        visual_inputs["pixel_values_videos"].reshape(
+            batch_size, 
+            len(visual_inputs["pixel_values_videos"]) // batch_size,
+            -1
+        )
+
+        visual_inputs["video_grid_thw"] = \
+        visual_inputs["video_grid_thw"].reshape(
+            batch_size, 
+            len(visual_inputs["video_grid_thw"]) // batch_size,
+            -1
+        )
+
+        visual_inputs["second_per_grid_ts"] = torch.tensor(visual_inputs["second_per_grid_ts"])
+
+        visual_inputs["second_per_grid_ts"] = \
+        visual_inputs["second_per_grid_ts"].reshape(
+            batch_size, 
+            len(visual_inputs["second_per_grid_ts"]) // batch_size,
+            -1
+        )
+        
+        return visual_inputs
+
     def compute_liger_loss(self, unwrapped_model, inputs):
         # Compute the per-token log probabilities for the model
-        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        prompt_ids, prompt_mask,visual_inputs = inputs["prompt_ids"], inputs["prompt_mask"], input["visual_inputs"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
@@ -1328,12 +1394,12 @@ class GRPOTrainer_qwen(Trainer):
             with torch.no_grad():
                 if self.ref_model is not None:
                     ref_per_token_logps = self._get_per_token_logps(
-                        self.ref_model, input_ids, attention_mask, logits_to_keep
+                        self.ref_model, input_ids, attention_mask, logits_to_keep, None, visual_inputs
                     )
                 else:
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps = self._get_per_token_logps(
-                            self.model, input_ids, attention_mask, logits_to_keep
+                            self.model, input_ids, attention_mask, logits_to_keep, None, visual_inputs
                         )
 
         # get the last hidden state of the model
@@ -1363,6 +1429,7 @@ class GRPOTrainer_qwen(Trainer):
 
     @profiling_decorator
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        # breakpoint()
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
         if self.use_liger_loss:
@@ -1374,25 +1441,25 @@ class GRPOTrainer_qwen(Trainer):
 
     def _compute_loss(self, model, inputs):
         # Compute the per-token log probabilities for the model
-        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        prompt_ids, prompt_mask, visual_inputs = inputs["prompt_ids"], inputs["prompt_mask"], inputs["visual_inputs"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
 
-        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
+        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, None, visual_inputs)
 
         # Compute the KL divergence between the model and the reference model
         if self.beta != 0.0:
             with torch.no_grad():
                 if self.ref_model is not None:
                     ref_per_token_logps = self._get_per_token_logps(
-                        self.ref_model, input_ids, attention_mask, logits_to_keep
+                        self.ref_model, input_ids, attention_mask, logits_to_keep, None, visual_inputs
                     )
                 else:
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps = self._get_per_token_logps(
-                            self.model, input_ids, attention_mask, logits_to_keep
+                            self.model, input_ids, attention_mask, logits_to_keep, None, visual_inputs
                         )
             per_token_kl = (
                 torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1

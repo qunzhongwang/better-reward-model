@@ -1,5 +1,5 @@
 [default]
 entity = KwaiAiTraining
-project = huggingface
+project = grpo-train-session
 base_url = https://api.wandb.ai
 

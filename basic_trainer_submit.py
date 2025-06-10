@@ -72,14 +72,14 @@ def select_data_pipeline(preprocess_handler):
 def format_reward(completions, **kwargs):
     """Reward function that checks if the completion has a specific format."""
     pattern = r"^<think>.*?</think>\s*<answer>.*?</answer>$"
-    completion_contents = [completion[0]["content"] for completion in completions]
+    # breakpoint()
+    completion_contents = [completion for completion in completions]
     matches = [re.match(pattern, content) for content in completion_contents]
     rewards_list = [1.0 if match else 0.0 for match in matches]
     return [1.0 if match else 0.0 for match in matches]
 
 system_prompt = None
 reward_funcs_registry = None
-
 def get_asset():
 
     global system_prompt, reward_funcs_registry
@@ -109,9 +109,9 @@ def update_image_or_video_reward(args):
         reward_funcs_registry["accuracy_reward"] = pick_correct_video_reward
 
 def pick_correct_video_reward(completions, **kwargs):
-    breakpoint()
-    image_left_is_better =  kwargs["selection"]
-    completion_contents = [completion[0]["content"] for completion in completions]
+
+    image_left_is_better =  kwargs["selections"]
+    completion_contents = [completion for completion in completions]
     rewards = []
     predictons = []
     for content, selection in zip(completion_contents, image_left_is_better):
@@ -131,7 +131,7 @@ def pick_correct_video_reward(completions, **kwargs):
     return rewards
 
 def pick_correct_image_reward(completions, **kwargs):
-    image_left_is_better =  kwargs["selection"]
+    image_left_is_better =  kwargs["selections"]
     completion_contents = [completion[0]["content"] for completion in completions]
     rewards = []
     predictons = []

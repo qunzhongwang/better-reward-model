@@ -28,7 +28,7 @@ accelerate launch --config_file asset/config/deepspeed_zero2_1gpus.yaml \
     --data_select_ratio 0.0125 \
     --cache_dir "/m2v_intern/wangqunzhong/research/asset/huggingface/model/Qwen/Qwen2.5-VL-7B-Chat" \
     --torch_dtype "bfloat16" \
-    --debug_entry_point True \
+    --debug_entry_point False \
     --data_source "video" \
     --do_train True \
     --bf16 True
