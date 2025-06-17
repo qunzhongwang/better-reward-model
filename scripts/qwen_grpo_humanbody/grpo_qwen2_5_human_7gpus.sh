@@ -7,9 +7,9 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 accelerate launch --config_file asset/config/
     --remove_unused_columns False\
     --learning_rate 5e-6 \
     --per_device_train_batch_size 3 \
-    --gradient_accumulation_steps 12 \
+    --gradient_accumulation_steps 16 \
     --num_iterations 8 \
-    --num_generations 252 \
+    --num_generations 336 \
     --model_name_or_path "Qwen/Qwen2.5-VL-7B-Instruct" \
     --report_to "wandb" \
     --logging_steps 1 \
@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 accelerate launch --config_file asset/config/
     --data_select_ratio 0.1 \
     --cache_dir "/m2v_intern/wangqunzhong/research/asset/huggingface/model/Qwen/Qwen2.5-VL-7B-Chat" \
     --torch_dtype "bfloat16" \
-    --debug_entry_point True \
+    --debug_entry_point False \
     --data_source "video" \
     --do_train True \
     --bf16 True \
