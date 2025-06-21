@@ -30,6 +30,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.utils.data import DataLoader, Sampler
 from transformers import (
     AutoModelForCausalLM,
+    AutoModelForVision2Seq,
     AutoModelForSequenceClassification,
     Qwen2_5_VLForConditionalGeneration,
     Qwen2VLProcessor,
@@ -43,6 +44,8 @@ from transformers import (
     is_wandb_available,
     
 )
+
+
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from transformers.trainer_utils import seed_worker
 from transformers.utils import is_datasets_available, is_peft_available, is_rich_available
@@ -62,6 +65,11 @@ from .utils import (
     pad,
     print_prompt_completions_sample,
     selective_log_softmax,
+)
+
+
+from model_wrappers.agent_wrapper import (
+    vllmAgentWrapper
 )
 
 import numpy as np
@@ -283,7 +291,7 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     return torch.max(tensor[~torch.isnan(tensor)])
 
 
-class GRPOTrainer_qwen(Trainer):
+class GRPOTrainer_agent_qwen(Trainer):
     """
     Trainer for the Group Relative Policy Optimization (GRPO) method. This algorithm was initially proposed in the
     paper [DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models](https://huggingface.co/papers/2402.03300).
@@ -392,6 +400,8 @@ class GRPOTrainer_qwen(Trainer):
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
     ):
+        assert self.use_vllm == True, "Only use for vllm generate"
+
         # Args
         if args is None:
             model_name = model if isinstance(model, str) else model.config._name_or_path
@@ -634,7 +644,8 @@ class GRPOTrainer_qwen(Trainer):
                     base_url = f"http://{args.vllm_server_host}:{args.vllm_server_port}"
                 self.vllm_client = VLLMClient(base_url=base_url, connection_timeout=args.vllm_server_timeout)
                 self.vllm_client.init_communicator()
-
+            
+            #TODO 只处理这里
             elif self.vllm_mode == "colocate":
                 # Make sure vllm_tensor_parallel_size group size evenly divides the world size - each group should have
                 # the same number of ranks
@@ -643,7 +654,7 @@ class GRPOTrainer_qwen(Trainer):
                         f"vllm_tensor_parallel_size ({self.vllm_tensor_parallel_size}) must divide world size "
                         f"({self.accelerator.num_processes}) evenly."
                     )
-
+                # 不处理
                 if self.vllm_tensor_parallel_size > 1:
                     # Create subgroups of ranks for TP, each group with `vllm_tensor_parallel_size` ranks.
                     # For example, if world_size=8 and vllm_tensor_parallel_size=2 → groups: [0,1], [2,3], [4,5], [6,7]
@@ -654,7 +665,12 @@ class GRPOTrainer_qwen(Trainer):
                         ]
                     )
 
-                self.llm = LLM(
+
+                # TODO 变成单model取样
+
+                self.agent = vllmAgentWrapper(
+                    processor=self.processing_class,
+                    args= self.args,
                     model=model.name_or_path,
                     tensor_parallel_size=args.vllm_tensor_parallel_size,
                     gpu_memory_utilization=self.vllm_gpu_memory_utilization,
@@ -1129,7 +1145,12 @@ class GRPOTrainer_qwen(Trainer):
                     all_prompts_text = prompts_text
 
                 with profiling_context(self, "vLLM.generate"):
-                    all_outputs = self.llm.generate(all_prompts_text, sampling_params=sampling_params, use_tqdm=False)
+                    
+                    # 这里希望 LLM生成多轮对话结果
+
+                    all_outputs = self.agent.make_experience_list(all_prompts_text, is_eval=False)#sampling_params=sampling_params, use_tqdm=False)
+
+                    # all_outputs = self.llm.generate(all_prompts_text, sampling_params=sampling_params, use_tqdm=False)
 
                 completion_ids = [output.token_ids for outputs in all_outputs for output in outputs.outputs]
 
