@@ -34,6 +34,6 @@ CUDA_VISIBLE_DEVICES=0  python agent_grpo_trainer_submit.py \
     --max_completion_length 1024 \
     --fps 8. \
     --max_prompt_length 2048 \
-    --run_name $experient_name \
+    --run_name $experient_name
 
 
