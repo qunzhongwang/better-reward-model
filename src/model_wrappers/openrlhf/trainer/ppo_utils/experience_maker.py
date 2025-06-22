@@ -44,7 +44,7 @@ def to_rgb(pil_image: Image.Image) -> Image.Image:
       else:
           return pil_image.convert("RGB")
 
-@register_tool("select_frames")
+@register_tool("select_frames_v1")
 class SelectFrames(BaseTool):
     @property
     def description(self):
@@ -120,7 +120,7 @@ Select frames from a video.
 
 #         return cropped_img  
 
-@register_tool("crop_image_normalized")
+@register_tool("crop_image_normalized_v1")
 class CropImageNormalized(BaseTool):
     @property
     def description(self):

@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: model_wrappers
+Version: 0.1.0
+Summary: A custom model wrapper module
+Author: Qunzhong
+Dynamic: author
+Dynamic: summary

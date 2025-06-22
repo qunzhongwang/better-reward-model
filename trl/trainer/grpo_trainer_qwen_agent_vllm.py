@@ -15,6 +15,7 @@
 import os
 import textwrap
 import warnings
+import numpy as np
 from collections import defaultdict, deque
 from collections.abc import Sized
 from contextlib import nullcontext
@@ -71,9 +72,6 @@ from .utils import (
 from model_wrappers.agent_wrapper import (
     vllmAgentWrapper
 )
-
-import numpy as np
-
 
 if is_peft_available():
     from peft import PeftConfig, get_peft_model
@@ -400,7 +398,8 @@ class GRPOTrainer_agent_qwen(Trainer):
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
     ):
-        assert self.use_vllm == True, "Only use for vllm generate"
+
+        assert args.use_vllm == True, "Only use for vllm generate"
 
         # Args
         if args is None:
@@ -508,7 +507,7 @@ class GRPOTrainer_agent_qwen(Trainer):
             return features
 
         # Training arguments
-        self.max_prompt_length = None
+        self.max_prompt_length = 4096
         self.max_completion_length = args.max_completion_length  # = |o_i| in the GRPO paper
         self.num_generations = args.num_generations  # = G in the GRPO paper
         self.temperature = args.temperature

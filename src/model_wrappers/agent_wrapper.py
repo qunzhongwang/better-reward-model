@@ -21,22 +21,32 @@ from vllm import SamplingParams
 import datasets
 from datasets import interleave_datasets, load_dataset
 
-from openrlhf.models.actor import Actor
-from openrlhf.models.utils import (
+from model_wrappers import openrlhf
+from model_wrappers.openrlhf.models.actor import Actor
+from model_wrappers.openrlhf.utils.logging_utils import init_logger
+from model_wrappers.openrlhf.utils import get_strategy
+from model_wrappers.openrlhf.models.utils import (
     compute_approx_kl, 
     compute_reward, 
     masked_mean, 
-    unpacking_samples
+    unpacking_samples,
 )
 
-from openrlhf.utils.logging_utils import init_logger
+# from qwen_agent.tools import TOOL_REGISTRY
+# print(TOOL_REGISTRY.keys())  # 查看已注册的工具
 
-from openrlhf.trainer.ray import (
-    create_vllm_engines,
 
+from model_wrappers.openrlhf.trainer.ray import (create_vllm_engines,)
+
+from model_wrappers.openrlhf.trainer.ppo_utils import (
+    AdaptiveKLController, 
+    Experience, 
+    FixedKLController, 
+    NaiveExperienceMaker, 
+    NaiveReplayBuffer, 
+    DATA_PROCESSOR_MAP
 )
 
-# from openrlhf.trainer.ppo_utils.data_processor import add_pixel_bounds
 
 from qwen_vl_utils import (
     smart_resize,
@@ -56,19 +66,15 @@ from math_verify import (
 )
 
 from qwen_agent.tools.base import BaseTool, register_tool
-from qwen_agent.llm.fncglobal_prompts.nous_fncglobal_prompt import (
+from qwen_agent.llm.fncall_prompts.nous_fncall_prompt import (
     NousFnCallPrompt,
     Message,
     ContentItem,
 )
 
-if is_vllm_available():
-    from vllm import LLM, SamplingParams
-    from vllm.sampling_params import GuidedDecodingParams
+from vllm import LLM, SamplingParams
+from vllm.sampling_params import GuidedDecodingParams
 
-from openrlhf.trainer.ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer, DATA_PROCESSOR_MAP
-
-from openrlhf.utils import get_strategy
 
 
 logger = init_logger(__name__)
@@ -81,8 +87,8 @@ def to_rgb(pil_image: Image.Image) -> Image.Image:
       else:
           return pil_image.convert("RGB")
 
-@register_tool("select_frames")
-class SelectFrames(BaseTool):
+@register_tool("select_frames_v2")
+class _SelectFrames(BaseTool):
     @property
     def description(self):
         return """
@@ -108,8 +114,8 @@ Select frames from a video.
         return [images[tgt] for tgt in target_frames]
 
 
-@register_tool("crop_image_normalized")
-class CropImageNormalized(BaseTool):
+@register_tool("crop_image_normalized_v2")
+class _CropImageNormalized(BaseTool):
     @property
     def description(self):
         return """
@@ -1356,21 +1362,22 @@ class vllmAgentWrapper(BaseAgentWrapper):
         self.modelfamily = kwargs.get('modelfamily', 'qwen')
         
 
-        super().__init__(None,
-                        None,
-                        None,
-                        None,
-                        self.tokenizer,
-                        self.data_processor,
-                        self.prompt_max_len,
-                        0.0,
-                        self.strategy,
-                        None,
-                        reward_fn,
-                        gt_path=args.gt_path, 
-                        modelfamily=args.modelfamily,
-                        **kwargs
-                    )
+        super().__init__(
+            None,
+            None,
+            None,
+            None,
+            self.tokenizer,
+            self.data_processor,
+            2048,
+            0.0,
+            self.strategy,
+            None,
+            reward_fn,
+            gt_path=args.gt_path, 
+            modelfamily=self.modelfamily,
+            **kwargs
+        )
 
         vllm_engine = LLM(
             model=model,
@@ -1964,14 +1971,14 @@ class vllmAgentWrapper(BaseAgentWrapper):
         )
 
         # size info
-        raw_maxsize = 2000, zoom_maxsize = 1000, select_maxsize = 400,\
+        raw_maxsize = 2000; zoom_maxsize = 1000; select_maxsize = 400\
         
-        eval_minpixel = 256 , eval_maxpixel = 8000 #for tools, should be 8000
+        eval_minpixel = 256 ; eval_maxpixel = 8000 #for tools, should be 8000
         
         image_maxtoken = 512 # int(maxpixel)//10//28//28 
         
         # comm info
-        rank = dist.get_rank(), world_size = dist.get_world_size()
+        rank = dist.get_rank(); world_size = dist.get_world_size()
 
 
         # Select LLM engines: assign each rank an engine, or cycle through engines if world_size < engine_count
@@ -2000,7 +2007,7 @@ class vllmAgentWrapper(BaseAgentWrapper):
             if is_eval:
                 temperature = getattr(args, "val_temperature", 0.6)
                 top_p = 0.95
-  
+
         
         print(f"!!!! [warning] forcifully using maxtoken={maxtoken} for vllm")
         data_version = getattr(args, "data_version", None)
@@ -2163,7 +2170,6 @@ class vllmAgentWrapper(BaseAgentWrapper):
                 
             global_vllm_inputs = vllm_inputs
 
-           
             outputs = llm.generate(
                 [vllm_inputs[cur_uid] for cur_uid in batch_uids],
                 sampling_params=sampling_params, 

@@ -197,6 +197,10 @@ class GRPOScriptArguments(ScriptArguments):
 
     fps: float = 1.
 
+    prompt_data: str = "test"
+
+    eval_data: str = "test"
+
 
 def main(script_args, training_args, model_args):
     
@@ -292,4 +296,9 @@ if __name__ == "__main__":
         elif hasattr(training_args, name):
             model_init_kwargs[name] = getattr(training_args, name)
     training_args.model_init_kwargs = model_init_kwargs
+    training_args.prompt_data = script_args.prompt_data
+    training_args.eval_data = script_args.eval_data
+    training_args.zero_stage = 2 #script_args.zero_stage
+    training_args.advantage_estimator = "group"
+    
     main(script_args, training_args, model_args)
