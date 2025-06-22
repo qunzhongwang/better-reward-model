@@ -1349,6 +1349,11 @@ class vllmAgentWrapper(BaseAgentWrapper):
         self.data_processor = DATA_PROCESSOR_MAP[type(processor)](processor)
         self.tokenizer = self.data_processor.tokenizer
         self.strategy = get_strategy(args)
+        train_data = getattr(args, 'prompt_data',None)
+        eval_data = getattr(args, "eval_data",None)
+        args.gt_path = self.gt_path = [train_data, eval_data]
+        print('!!!! gts', self.gt_path)
+        self.modelfamily = kwargs.get('modelfamily', 'qwen')
         
 
         super().__init__(None,
